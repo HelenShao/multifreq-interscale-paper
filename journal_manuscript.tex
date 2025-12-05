@@ -1,0 +1,462 @@
+\PassOptionsToPackage{numbers,sort&compress}{natbib}
+
+\documentclass[preprintnumbers,amsmath,amssymb,prd, notitlepage,nofootinbib, superscriptaddress]{revtex4}
+
+\usepackage{amsfonts,amssymb,amsmath}
+
+\usepackage{gensymb}
+
+\usepackage{color}
+
+\usepackage{graphicx}
+
+\usepackage{multirow}
+
+\usepackage[utf8]{inputenc}
+
+\usepackage{aas_macros}
+
+\usepackage{hyperref}
+
+\usepackage{array}
+
+\usepackage{booktabs}
+
+\usepackage[normalem]{ulem}
+
+\definecolor{lightgray}{gray}{0.95}
+
+\usepackage{tikz}
+
+\usetikzlibrary{shapes.geometric, arrows, positioning, decorations.pathreplacing, calc}
+
+\newcommand{\Planck}{{\it Planck}~}
+\newcommand{\be}{\begin{equation}}        
+\newcommand{\ee}{\end{equation}}
+\newcommand{\ba}[1]{\begin{align}
+#1
+\end{align}}
+
+\begin{document}
+
+\title{Signal-Preserving Machine Learning for CMB Foreground Reconstruction: Frequency-Difference and Inter-Scale Approaches}
+
+\author{Helen Shao}
+\affiliation{Department of Physics, Princeton University}
+\email{helen.shao@cfa.harvard.edu}
+
+\author{Fiona McCarthy}
+\affiliation{Department of Applied Mathematics and Theoretical Physics, University of Cambridge}
+
+\author{Miles Cranmer}
+\affiliation{Department of Applied Mathematics and Theoretical Physics, University of Cambridge}
+
+\author{Blake Sherwin}
+\affiliation{Department of Applied Mathematics and Theoretical Physics, University of Cambridge}
+
+\date{\today}
+
+\begin{abstract}
+Accurate measurement of Cosmic Microwave Background (CMB) B-mode polarization, a key probe of inflationary physics, is hindered by complex astrophysical foreground contamination. While multi-frequency component separation methods like the Internal Linear Combination (ILC) can mitigate foregrounds to high accuracy, they require multiple frequency channels and are limited to second-order statistics. We present signal-preserving machine learning frameworks for foreground reconstruction using both multi-frequency and single-frequency data. We first review the frequency-difference UNet approach \citep{mccarthy24_ml}, which trains networks on frequency-difference maps to cancel the CMB signal, ensuring signal preservation. We then extend this to single-frequency observations by leveraging inter-scale correlations within foreground maps, where small-scale information ($\ell > 200$) predicts large-scale contamination ($\ell < 200$). Finally, we combine both approaches, using frequency-difference information (ILC residuals) and inter-scale information (small-scale B-modes) as multi-channel inputs. Using realistic simulations of Galactic dust emission from the DustFilaments model, we demonstrate improved foreground removal compared to baseline methods, achieving mean spatial correlations of $0.45$ and normalized cross-power spectrum correlations of $0.49$ for single-frequency inter-scale models. The combined frequency-difference + inter-scale approach with 8 channels (ILC foregrounds + small-scale B-modes) and 16 channels (adding T and E modes) shows further improvements. We validate signal preservation through cross-correlation analysis and demonstrate the method's effectiveness for CMB reconstruction, showing significant improvements in mean squared error compared to uncleaned observations.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}\label{sec:introduction}
+
+Primordial B-mode polarization of the Cosmic Microwave Background (CMB) offers a unique observational signature of inflationary gravitational waves and serves as a crucial probe of the physics that govern the early universe \citep{zaldarriaga1997polarization, kamionkowski1997detecting, seljak1997signature}. At large angular scales ($\ell \lesssim 100-200$), the CMB B-mode power spectrum constrains the inflationary energy scale through the tensor-to-scalar ratio, $r$ \citep{baumann2009inflation, hu1997cmb}. The current direct constraint on this parameter is an upper bound of $r < 0.036$ at 95\% confidence, set by the BICEP/Keck Array experiment \citep{2018SPIE10708E..07H}. Improving the statistical significance of this bound, however, is severely complicated by the overwhelming presence of Galactic foreground contamination across all frequencies, which must be accurately modeled and removed to isolate the faint primordial signal \citep{bk2021, Campeti_2022}. 
+
+At large angular scales, the dominant Galactic contamination to CMB polarization maps is sourced by diffuse synchotron emission at low frequencies ($\lesssim 100 GHz$) and thermal dust emission at high frequencies ($\gtrsim 200 GHz$) \citep{planck2016foregrounds, kamionkowski2016}. In this work, we will focus on the separation and removal of the latter component. Dust grains in the Milky Way, including ices, silicates, and polycyclic aromatic hydrocarbons, are heated by high energy photons and re-radiate in the infarared~\citep{draine2011thermal,thorne2017}. The Galactic magnetic field also aligns the spin of these elongated grains, causing their emission to be polarized~\citep{draine2009,fraisse2009}. In the CMB B-modes power spectrum, this polarization washes out any potential inflationary signal \citep{planck2016foregrounds, planck2018componentsep} and needs to be carefully cleaned. However, these foregrounds exhibit complex spatial structures, non-Gaussian statistics, and frequency-dependent spectral energy distributions (SEDs) that makes it difficult to separate them from the CMB signal. Incomplete knowlede of these properties in the modeling and uncertainties in the removal of this foreground directly translates into a residual "foreground noise" that sets a floor on the achievable uncertainty in $r$ constraints, well above the $\sigma(r) \sim 10^{-3}$ goal of future CMB experiments~\citep{Simmons_2025}. Hence, effectively separating and mitigating this component is crucial for maximizing the scientific return from existing and future CMB maps, such as those from the Atacama Cosmology Telescope (ACT)~\cite{Choi_2020}, the South Pole Telescope (SPT)~\cite{Carlstrom_2011}, the Simons Observatory (SO)~\cite{SimonsObservatory2019}, and LiteBIRD~\cite{2023PTEP.2023d2F01L}.
+
+Internal Linear Combination (ILC) ~\cite{bennett2003firstyear, eriksen2004ilc, delabrouille2009needletilc} is one of the most widely used class of methods for this objective. It exploits the presence and absence of frequency correlations among the different components in the CMB maps to construct a linear combination of the observed maps across multiple frequency bands that optimally isolates and removes sources of contamination. Specifically, the frequency dependence of these different sources can be quantified through their spectral energy distributions (SEDs). Notably, while the astrophysical and Galactic foregrounds have correlated SEDs, the near-perfect blackbody spectrum of the primary CMB is invariant across all frequencies and uncorrelated with the foregrounds. Thus, given a set of observations in different wavelengths, one can exploit this relationship to disentangle the different components. ILC methods achieve this by constructing a linear combination of the multi-frequency maps that optimally isolates and removes sources of contamination. Crucially, the weights of this combination are computed to minimize the variance of the resulting map, which gives the optimal reconstruction of the CMB signal under the assumption that it is purely Gaussian. The advantages of this method is that it is agnostic to the foreground model, offering a purely statistical removal of the unwanted contamination. Moreover, by using the fact that the primary CMB is uncorrelated with the foregrounds in all frequency bands, the ILC solution is explicitly constrained to contain unit response of the CMB signal. This ensures that the reconstruction is \textit{signal preserving} --- i.e., it fully recovers the primary CMB independent of the nature of the other components.
+
+While ILC offers several advantages -- analytical tractability, no requirement for foreground templates, and signal preservation -- it is important to outline its limitations.
+First, its effectiveness critically depends on a priori knowledge of the frequency dependence of the components present in the observations and access to sufficient number of multi-frequency maps to resolve their different SEDs. Since CMB experiments measure in a finite number of wavelength bands, the spectral degrees of freedom of complex foregrounds cannot be perfectly sampled, leading to residual contamination. Second, the ILC relies solely on second-order statistics (in the case of spatial ILC, it is the frequency-space variance of the observed maps), neglecting higher-order correlations that are abundant in Galactic foregrounds. When foreground statistics are anisotropic and non-Gaussian across the sky, standard global component separation of the ILC is suboptimal. This drawback is particularly problematic for foreground sources with correlated structures in harmonic and real space. \citep{planck2016interstellar}. For instance, turbulent processes affecting the behavior of dusts grains in the Milky Way interstellar medium are highly non-Gaussian and anisotropic, with dust emission strength increasing nearer the Galactic plane\citep{planck2016foregrounds}. This gives rise to spatially varying SEDs~\citep{1997PhRvL..78.2058K, PhysRevLett.78.2054}. Since standard ILC applies the same weights over its domain of operation (full/partial sky, spatial/harmonic space), it cannot completely null foregrounds with simultaneously frequency varying properties and spatially varying spectra. In these cases, it is necessary to incorporate localized information. For example, the Needlet Internal Linear Combination (NILC)~\citep{needlet} is a variant of the standard ILC that addresses this by minimizing the variance of the final map in separate spatially- and harmonically-localized domains. However, the optimality of the NILC remains dependent on the data being approximately isotropic and Gaussian within each of these domains.
+
+These limitations have motivated recent efforts to incorporate machine learning (ML) methods into CMB component separation, due to their potential for modeling complex, non-linear relationships and capturing the non-Gaussian features missed by ILC \citep{munchmeyer2019planck, petroff2020, krachmalnicoff2021deepmc, mccarthy24_ml}. However, a significant challenge for ML-based approaches is their sensitivity to the information provided by simulations that are used as inputs for training. Given the inherent uncertainties and approximations in incomplete foreground modeling, mismatches between simulations and real data can introduce simulation bias into the recovered CMB signal \citep{alsing2019simulationbias}. As a result, ML models trained directly on full observational maps that contain the primary CMB signal risk inadvertently learning and removing part of the cosmological signal. This makes the ML reconstruction uninterpretable and potentially unreliable for subsequent cosmological inference on real observations. Therefore, ensuring signal preservation and quantifying uncertainties remain critical concerns for any ML-based component separation approach.
+
+To address this challenge and ensure the final reconstruction respects the signal-preserving property of the ILC solution, \cite{mccarthy24_ml} presented a novel framework that blinds the ML algorithm to the CMB signal of interest. The key is to exploit the spectral properties of the distinct components present in the observed maps:  foregrounds have frequency-dependent SEDs while the CMB has a identical amplitude across all frequencies. Hence, by taking differences between frequency channels, the CMB signal cancels out, leaving only foreground and noise contributions. Using these frequency-difference maps as inputs, the authors then train a neural network to predict ILC residuals --- the difference between ILC-reconstructed CMB and true CMB --- using the frequency-difference information as input. Since the CMB signal is absent from both the input (frequency differences) and target (ILC residuals), the network learns \textit{only} foreground properties. The output of the network is then subtracted from the ILC reconstruction to yield an improved, non-linear estimate of the CMB signal. With this ML model, \cite{mccarthy24_ml} produces \textit{unbiased} CMB reconstructions with variances that are up to five times lower than that of ILC. While this approach is powerful, it inherits the multi-frequency data requirement of the ILC, thereby limiting its applicability to experiments with sparse frequency coverage or single-frequency observations.
+
+We extend the signal-preserving ML framework to address the challenge of single-frequency observations by leveraging the intrinsic inter-scale correlations within astrophysical foreground maps. The key insight is that while primordial CMB modes exhibit statistical independence across angular scales (consistent with a Gaussian random field), Galactic foreground emission processes induce significant correlations between structures at different angular scales \citep{lazarian2000turbulence, cho2002mhd}. This property, which arises from the underlying physics of the interstellar medium, critically distinguishes foreground components from the primary CMB. This, in principle, enables the use of small-scale information to predict large-scale Galactic properties and remove its contamination \citep{kovetz}. For instance, \cite{philcox2018} used the statistical anisotropy of Galactic dust B-modes to construct a bipolar-spherical harmonic estimator that can clean dust-dominated CMB maps with forecasted constraints on $r \sim 0.001$ at 2$\sigma$. 
+
+In this paper, we combine the signal-preserving technique developed in \cite{mccarthy24_ml} with the use of inter-scale statistical correlations within foregrounds to reconstruct and remove Galactic dust polarization. Specfically, we investigate how the statistical information contained in small angular scales ($\ell > 200$), where foregrounds dominate and primordial B-mode power is negligible, can be used to predict large-scale foreground contamination ($\ell < 200$) that obscures the signal of interest. We emphasize that since the primary CMB modes are statistically independent across angular scales, using small-scale information to predict and remove large-scale foregrounds preserves the cosmological signal by construction. We demonstrate the effectiveness of this method using realistic simulations of Galactic dust emission from the DustFilaments model \citep{Herv_as_Caimapo_2022}, and show that it can achieve mean spatial correlations of $0.45$ and normalized cross-power spectrum correlations of $0.49$ for single-frequency inter-scale models. We later augment the network inputs with complementary temperature and E-mode polarization maps to improve the foreground reconstruction. Using this additional information, we achieve mean spatial correlations of $0.79$ and normalized cross-power spectrum correlations of $0.80$. Finally, we explore a hybrid approach that combines the frequency-difference and inter-scale information, and show that this can achieve ---.
+
+This paper is structured as follows. We first present the inter-scale foregorund reconstruction framework and notation in Section~\ref{sec:interscale}. Next, we describe the simulation data used to demonstrate the proposed method in Section~\ref{sec:simulations}. We explain the neural network architecture and training procedures in Section~\ref{sec:methods}, detailing variations of the interscale reconstruction with augmentations of the network input channels to include temperature, E-mode polarization, and multi-frequency information. We then describe the validation metrics used the evaluate the performances of these networks in Section~\ref{sec:metrics}. In Section~\ref{sec:results}, we present the network predictions and comprehensive evaluations of the resulting foreground and CMB reconstructio reconstructions, including spatial and harmonic space correlation and accuracy metrics. Finally, we conclude in Section~\ref{sec:discussion} by discussing the implications, limitations, and future directions of this work.
+
+\section{Inter-Scale Foreground Reconstruction Framework}\label{sec:interscale}
+
+The primary CMB signal can be described as a statistically isotropic Gaussian random field and consequently exhibits statistical independence between different angular multipoles $\ell$. In contrast, Galactic foregrounds, driven by processes like turbulence in the magnetized interstellar medium, often show significant correlations between structures observed at different angular scales \citep{lazarian2000turbulence, cho2002mhd}. This is consistent with the filamentary nature of dust distribution in the Milky Way which create coherent structures across multiple angular scales. We exploit these inter-scale relations by training ML models to predict foreground contamination at specific target scales (e.g., large angular scales, low $\ell$, where primordial B-modes are expected) using only information from other scales (e.g., small angular scales, high $\ell$, where foregrounds and noise dominate, and the primordial CMB signal is negligible). Below, we present the basic formalism for this approach which relies only on B-mode polarization data, and later augment it with additional variations.
+
+\subsection{Inter-scale Learning: B-modes}\label{sec:interscale_single_frequency}
+
+Following the McCarthy framework, we use the following observation model for multi-frequency CMB maps. In this work, we work with only B-mode polarization maps:
+\begin{equation}
+B_i(\hat{\mathbf{n}}) = a_i S^{\mathrm{coi}}(\hat{\mathbf{n}}) + F_i(\hat{\mathbf{n}}) + N_i(\hat{\mathbf{n}}) \label{eq:general_obs_model}
+\end{equation}
+where $i$ indicates a frequency channel, $\hat{\mathbf{n}}$ is a unit vector on the sphere, $S^{\mathrm{coi}}(\hat{\mathbf{n}})$ is the component of interest, $a_i$ is the spectral energy distribution (SED) vector describing the frequency dependence of the COI at channel $i$, and $F_i(\hat{\mathbf{n}})$ are foregrounds and noise respectively, which are uncorrelated with $S^{\mathrm{coi}}(\hat{\mathbf{n}})$. For the CMB in CMB temperature units, $a_i = 1$ for all frequencies since the CMB follows a blackbody spectrum. For primordial CMB B-modes, which follow a blackbody spectrum, we have $a_i = 1$ for all frequencies when working in appropriate polarization units.
+
+The goal is to design a neural network $\mathcal{N}$ to learn a mapping between signal free inputs and outputs that can be used to separate and remove unwanted components from the contaminated maps and recover the COI. The key to constructing a neural network that obeys signal-preservation is two-fold:
+
+1. **Signal-free inputs**: First, the network inputs are constructed to be uncorrelated with the COI. This ensures the network cannot learn anything about $S_L$ from the inputs themselves and thereby cannot bias the primary CMB signal from e.g. modeling misspecification of imperfect simulations. However, the inputs need to be correlated with the components (i.e foregrounds) that one wishes to remove. Overall, this constraint gives rise to a network that is a function of only signal-free information.
+
+2. **Signal-free targets**: Second, the network is constrained to predict components that are uncorrelated with the COI, so that subtracting the prediction from the contaminated map does not inadvertently remove or bias $S_L$.
+
+This dual constraint ensures that even if the network's learned mapping is imperfect or if simulations contain modeling errors, the primary CMB signal remains unbiased. In the following sections, we describe the various configurations of this core framework to perform CMB reconstruction. In all cases discussed in this work, the component of interest is the large-scale primary CMB B-mode polarization, denoted by $S^{\mathrm{coi}}_L(\hat{\mathbf{n}})$.
+
+\subsection{Inter-Scale Learning: Single-Frequency Inputs}\label{sec:interscale_single_frequency}
+
+We begin by specializing this framework to the case of component separation via inter-scale learning, focusing on the reconstruction of large-scale primordial B-mode polarization maps ($S^{\mathrm{coi}}_L(\hat{\mathbf{n}})$) from small-scale B-mode polarization inputs. Hence, this class of configurations exploits the correlation between small-scale and large-scale structures in the observation maps. We emphasize that this method operates on \textit{single-frequency} maps decomposed by angular scale. As a result, the frequency-dependent SED factor $a_i$ does not explicitly appear in our scale-decomposed observation model (Equation~\eqref{eq:B_large}) for this case. Fig.~\ref{fig:interscale-pipeline} illustrates this framework.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Figures/diagram_sing_freq.pdf}
+    \caption{Schematic diagram of our inter-scale machine learning framework for signal-preserving foreground reconstruction. \textbf{(a)} The primary CMB signal is added with foreground observations from a single frequency to give \textbf{(b)} a contaminated map $B(\hat{\mathbf{n}})$. Since this map contains the signal of interest, it cannot be directly fed to the network. However, we can decompose it into large-scale ($B_L$, $\ell < \ell_{\text{cut}}$) and small-scale ($B_S$, $\ell > \ell_{\text{cut}}$) components. \textbf{(c)} The filtered small scale map is then fed to the network as a s signal free input. \textbf{(d)} The  network is trained to predict the large-scale foreground component $\hat{F}_L$. \textbf{(e)} $\hat{F}_L$ is then subtracted from the original large-scale map $B_L$ (which contains $S_L +  F_L$) to produce the NN-cleaned map $B^{\text{pred}}_L$. Since the input $F_S$ is statistically independent of the large-scale CMB signal $S_L$, the prediction $\hat{F}_L$ is also independent of $S_L$, ensuring the cosmological signal is preserved in the final map.}
+    \label{fig:interscale-pipeline}
+\end{figure}
+
+\subsubsection{Input: Small-scale B-modes}\label{sec:interscale_b}
+
+Our first objective is to use small-scale B-mode maps $B_S(\hat{\mathbf{n}})$ as the sole input to predict large-scale foregrounds $F_L(\hat{\mathbf{n}})$. To this end, we decompose the observation model into two sets of large-scale and small-scale maps via a filtering operation. 
+\begin{align}
+B_L(\hat{\mathbf{n}}) &= S_L(\hat{\mathbf{n}}) + F_L(\hat{\mathbf{n}}) \label{eq:B_large} \\
+B_S(\hat{\mathbf{n}}) &= S_S(\hat{\mathbf{n}}) + F_S(\hat{\mathbf{n}}) \label{eq:B_small}
+\end{align}
+
+We choose to filter at a scale cut of $ell=200$ so that B_L denotes the large-scales at $\ell < 200$ and B_S denotes the small scales at $\ell > 200$. Notice that this setup obeys the previously described two-fold constraint because while the primary CMB components $S_L$ and $S_S$ are statistically independent (as expected for a Gaussian random field), the foreground components $F_L$ and $F_S$ are correlated due to the underlying physical processes that couple them in the Galactic field. 
+
+During training, we remove the small-scale primary CMB component $S_S(\hat{\mathbf{n}})$ from the network input. Given that the CMB is a Gaussian random field, $S_S(\hat{\mathbf{n}})$ is statistically independent of both $F_S(\hat{\mathbf{n}})$ and $F_L(\hat{\mathbf{n}})$, and would act as a noise-like contaminant if included, potentially hindering the network's ability to learn the foreground inter-scale correlations. Isolating $F_S(\hat{\mathbf{n}})$ as the input focuses the network on the characteristics of the foregrounds, which are the target of the reconstruction.
+
+The neural network prediction of the large-scale foregrounds is thus a function of solely the small-scale foregrounds:
+\begin{equation}
+\hat{F}_L(\hat{\mathbf{n}}) = \mathcal{N}(B_S(\hat{\mathbf{n}})) = \mathcal{N}(F_S(\hat{\mathbf{n}})) \label{eq:F_L_prediction}
+\end{equation}
+
+We then subtract this prediction from the observed large-scale map to obtain the neural network's reconstruction of the COI:
+\begin{equation}
+\hat{B}_L(\hat{\mathbf{n}}) = B_L(\hat{\mathbf{n}}) - \hat{F}_L(\hat{\mathbf{n}}) = S_L(\hat{\mathbf{n}}) + F_L(\hat{\mathbf{n}}) - \mathcal{N}(F_S(\hat{\mathbf{n}})) \label{eq:B_L_reconstruction}
+\end{equation}
+
+This approach investigates the extent to which correlations exist between $F_S$ and $F_L$, and whether a network can capture these correlations via a non-linear mapping to accurately recover the primary signal.
+
+\subsection{Inputs: Small-scale B-modes + Temperature + E-Modes}\label{sec:interscale_t_e}
+
+To improve the foreground prediction, we augment the inputs with additional information that is uncorrelated with the COI but potentially correlated with the large-scale foregrounds. To potentially improve the predictive power for the inter-scale objective, we explore augmenting the input data with additional information from statistically independent components of the primary CMB. Specifically, in this second case, we include CMB temperature maps $T(\hat{\mathbf{n}})$ and E-mode polarization maps $E(\hat{\mathbf{n}})$ as additional channels of the network inputs:
+\begin{align}
+T(\hat{\mathbf{n}}) &= S_T(\hat{\mathbf{n}}) + F_T(\hat{\mathbf{n}}) \label{eq:T_map} \\
+E(\hat{\mathbf{n}}) &= S_E(\hat{\mathbf{n}}) + F_E(\hat{\mathbf{n}}) \label{eq:E_map}
+\end{align}
+Fig.~\ref{fig:augmented_training_example} shows an example of the training data for the inter-scale foreground prediction objective with T/E mode augmentation.
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Figures/TEB-patches.png}
+    \caption{Example training data for the inter-scale foreground prediction objective with T/E mode augmentation. From left to right: (a) Input patch containing small-scale B-mode information ($T_S^B$, $\ell > 200$). (b) Input patch containing the full E-mode polarization map ($E(\hat{\mathbf{n}})$, all $\ell$). (c) Input patch containing the full Temperature intensity map ($I(\hat{\mathbf{n}})$, all $\ell$). (d) Corresponding target patch containing the large-scale B-mode foreground component ($F_L^B$, $\ell < 200$). Panels (a), (b), and (c) are concatenated channel-wise as input to the network. All colorbars are labeled in units of $\mu$K.}
+    \label{fig:augmented_training_example}
+\end{figure}
+
+Critically, this augmentation strategy maintains signal preservation for the large-scale B-mode CMB signal $S_L^B(\hat{\mathbf{n}})$. This relies on the statistical properties of the primordial CMB: in standard inflationary cosmology, the temperature ($S_T$), E-mode ($S_E$), and primordial B-mode ($S^B$) components are statistically independent Gaussian random fields. Therefore, providing the full $T(\hat{\mathbf{n}})$ and $E(\hat{\mathbf{n}})$ maps (which contain $S_T$ and $S_E$ across all scales) as input does not introduce information that is correlated with the large-scale primordial B-mode signal $S_L^B$ that we aim to preserve.
+% The network's prediction $\hat{F}_L^B(\hat{\mathbf{n}})$ remains statistically independent of $S_L^B(\hat{\mathbf{n}})$, ensuring that $\langle T_L^{B, \text{pred}}(\hat{\mathbf{n}}) S_L^B(\hat{\mathbf{n}}) \rangle = \langle S_L^B(\hat{\mathbf{n}}) S_L^B(\hat{\mathbf{n}}) \rangle$.
+
+Given this statistical independence, we discard the primary CMB components $S_T$ and $S_E$ from the temperature and E-mode inputs during training, as they act as random noise that is not correlated with neither the foregrounds nor the COI. The network's prediction $\hat{F}_L^B(\hat{\mathbf{n}})$ remains statistically independent of $S_L^B(\hat{\mathbf{n}})$, ensuring that:
+\begin{equation}
+\langle \hat{B}_L(\hat{\mathbf{n}}) S_L^B(\hat{\mathbf{n}}) \rangle = \langle S_L^B(\hat{\mathbf{n}}) S_L^B(\hat{\mathbf{n}}) \rangle \label{eq:signal_preservation}
+\end{equation}
+
+The augmented network prediction is:
+\begin{equation}
+\hat{F}_L^B(\hat{\mathbf{n}}) = \mathcal{N}_{\text{aug}}(B_S(\hat{\mathbf{n}}), T(\hat{\mathbf{n}}), E(\hat{\mathbf{n}})) = \mathcal{N}_{\text{aug}}(F_S^B(\hat{\mathbf{n}}), F_T(\hat{\mathbf{n}}), F_E(\hat{\mathbf{n}})) \label{eq:F_L_aug_prediction}
+\end{equation}
+
+And the final cleaned reconstruction is:
+\begin{equation}
+\hat{B}_L(\hat{\mathbf{n}}) = B_L(\hat{\mathbf{n}}) - \hat{F}_L^B(\hat{\mathbf{n}}) = S_L(\hat{\mathbf{n}}) + F_L(\hat{\mathbf{n}}) - \mathcal{N}_{\text{aug}}(F_S^B(\hat{\mathbf{n}}), F_T(\hat{\mathbf{n}}), F_E(\hat{\mathbf{n}})) \label{eq:B_L_aug_reconstruction}
+\end{equation}
+
+Similar to the first case, this approach also relies only on \textit{single frequency} maps.
+
+\subsection{Frequency-difference + Inter-scale UNet}\label{sec:multifreq_interscale}
+Next, we explore a hybrid approach that combines inter-scale learning with the multi-frequency framework introduced in \cite{mccarthy24_ml}. This configuration leverages the correlation between small-scale and large-scale structures in the observation maps, as well as the correlations of the SEDs between different frequency channels. Adapting the formalism of \cite{mccarthy24_ml}, we use the frequency-difference maps as input channels to the network, which are computed as linear combination of the foreground components given by the ILC weights:
+\begin{equation}
+    \hat{F}_i = B_i - \hat{B}^{\mathrm{ILC}} = (F_i+N_i) - \sum_j w_j (F_j+N_j)
+    \label{eq:freq_diff}
+\end{equation}
+The $\hat{F}_i$ maps can be interpreted as the ILC estimation of the contaminants based on the correlations in foregrounds across different frequencies. In the above equation, one recognizes that the ILC solution, $\hat{B}^{\mathrm{ILC}}$, contains the full primary CMB signal. Consequently, the signal of interest is removed upon subtraction from the observed map, $B_i$. Therefore, $\hat{F}_i$ contains ``frequency-difference'' information uncorrelated with the signal of interest. Consequently, these $\hat{F}_i$ inputs satisfy the first constraint of the signal-free property. 
+
+To fulfil the second constraint, we again follow \cite{mccarthy24_ml} and train the network to predict signal-free targets --- the ILC residuals. These are defined as:
+\begin{equation}
+    \hat{\Delta B}^{\mathrm{ILC}} = B_i - \hat{B}^{\mathrm{ILC}}
+    \label{eq:ilc_residuals}
+\end{equation}
+
+Ultimately, the neural network improved reconstruction of the signal of interest can be expressed as
+\begin{equation}
+ B^{\mathrm{pred}}_L =  B^{\mathrm{ILC}}_L - \hat{\Delta B^{\mathrm ILC}}_L = \sum _i w_i B_i + \tilde f(F, N),\label{ml_pred_coi}
+\end{equation}
+where the weights, $w_i$, are given by the ILC solution. Since they are are unbiased, the above can be written as:
+\begin{equation}
+ f(B^i) = S(\hat{\mathbf{n}}) +  \sum_i w_i (F_i) + \tilde f(F).
+ \label{eq:ultimate_reconstruction}
+\end{equation}
+Again, we see the emergence of the key constraint: $\sum_i w_iB_i=0$, ensuring that any signal component is completely removed from the input to the neural network. 
+
+\subsubsection{Input: Small-scale B-modes}\label{sec:multifreq_small_b}
+We first investigate the combination of frequency-difference maps with small-scale B-modes as inputs to train a network to predict the ILC residuals. This is analogous to the inter-scale learning framework described in Sec~\ref{sec:interscale_b}. Hence, the network prediction can be written as:
+\begin{equation}
+    \hat{\Delta B^{\mathrm ILC}}_L = \mathcal{N}_{\text{scale}}(B_S, \hat{F}_i)
+    \label{eq:multifreq_interscale_pred}
+\end{equation}
+and the final cleaned reconstruction is:
+\begin{equation}
+    B_L^{\mathrm{pred}} = B_L^{\mathrm{ILC}} - \hat{\Delta B^{\mathrm ILC}}_L = S_L +  \sum_i w_i (F_i) + \tilde f(F).
+    \label{eq:multifreq_interscale_cmb_reconstruction}
+\end{equation}
+
+\subsubsection{Input: Small-scale B-modes + Temperature + E-modes}\label{sec:multifreq_teb}
+Finally, analogous to Sec~\ref{sec:interscale_t_e}, we explore the combination of frequency-difference maps with small-scale B-modes, temperature, and E-modes as inputs to train a network to predict the ILC residuals. In this case, the network prediction can be written as:
+
+\begin{equation}
+    \hat{\Delta B^{\mathrm ILC}}_L = \mathcal{N}_{\text{scale}}(B_S, T, E, \hat{F}_i)
+    \label{eq:multifreq_interscale_pred_teb}
+\end{equation}
+and the final cleaned reconstruction is:
+\begin{equation}
+    B_L^{\mathrm{pred}} = B_L^{\mathrm{ILC}} - \hat{\Delta B^{\mathrm ILC}}_L = S_L +  \sum_i w_i (F_i) + \tilde f(F).
+    \label{eq:multifreq_interscale_cmb_reconstruction_teb}
+\end{equation}
+
+In the subsequent section, we will detail the network architectures used to implement this both the single-frequency interscale configuration and the multi-frequency interscale hybrid approach. We will also present the training procedure and the simulation data used to train the neural networks.
+
+% Let $B(\hat{\mathbf{n}})$ be the observed map at a single frequency, containing signal $S(\hat{\mathbf{n}})$ and foreground $F(\hat{\mathbf{n}})$. We can decompose this map into components based on angular scale, for instance, a large-scale map $B_L(\hat{\mathbf{n}})$ containing multipoles $\ell < \ell_{\text{cut}}$ and a small-scale map $B_S(\hat{\mathbf{n}})$ with $\ell > \ell_{\text{cut}}$.
+% \begin{align}
+%     B_L(\hat{\mathbf{n}}) &= S_L(\hat{\mathbf{n}}) + F_L(\hat{\mathbf{n}}) \\
+%     B_S(\hat{\mathbf{n}}) &= S_S(\hat{\mathbf{n}}) + F_S(\hat{\mathbf{n}})
+% \end{align}
+% Our goal is to estimate the large-scale foreground contamination, $F_L(\hat{\mathbf{n}})$. We propose training an neural network, $\mathcal{N}_{\text{scale}}$, to predict $F_L$ using only the small-scale foreground component $F_S(\hat{\mathbf{n}})$ as input: $\hat{F}_L(\hat{\mathbf{n}}) = \mathcal{N}_{\text{scale}}(F_S(\hat{\mathbf{n}}))$. 
+
+% Since the CMB signal components $S_L(\hat{\mathbf{n}})$ and $S_S(\hat{\mathbf{n}})$ are statistically independent, using $B_S(\hat{\mathbf{n}})$ as input ensures that the prediction $\hat{F}_L(\hat{\mathbf{n}})$ is independent of the large-scale CMB signal $S_L(\hat{\mathbf{n}})$ that we wish to preserve. The neural network learns to exploit the correlation between $F_S(\hat{\mathbf{n}})$ (present in the input $B_S(\hat{\mathbf{n}})$) and $F_L(\hat{\mathbf{n}})$ to make its prediction.
+
+% The final cleaned estimate of the large-scale map would then be:
+% \begin{equation}
+%     B^{\text{pred}}_L(\hat{\mathbf{n}}) = B_L(\hat{\mathbf{n}}) - \hat{F}_L(\hat{\mathbf{n}}) = (S_L(\hat{\mathbf{n}}) + F_L(\hat{\mathbf{n}})) - \mathcal{N}_{\text{scale}}(S_S(\hat{\mathbf{n}}) + F_S(\hat{\mathbf{n}})).
+% \end{equation}
+% Again, because the correction term $\hat{F}_L(\hat{\mathbf{n}})$ is independent of $S_L(\hat{\mathbf{n}})$, this reconstruction preserves the large-scale CMB signal by construction, $\langle B^{\text{pred}}_L(\hat{\mathbf{n}}) S_L(\hat{\mathbf{n}}) \rangle = \langle S_L(\hat{\mathbf{n}}) S_L(\hat{\mathbf{n}}) \rangle$. This approach, illustrated schematically in Figure \ref{fig:interscale-pipeline}, offers a pathway to signal-preserving foreground cleaning using potentially only single-frequency data, relying on the statistical differences between the CMB and foregrounds across angular scales rather than across frequencies. 
+
+% Note that when training the neural network with this framework, we remove the small-scale primary CMB component, $S_S(\hat{\mathbf{n}})$, from the input. Given that the CMB is a Gaussian random field, $S_S(\hat{\mathbf{n}})$ is statistically independent of $F_S(\hat{\mathbf{n}})$ and would act as a noise-like contaminant if included, potentially hindering the network's ability to learn the foreground inter-scale correlations. Isolating $F_S(\hat{\mathbf{n}})$ as the input focuses the network on the characteristics of the foregrounds, which are the target of the reconstruction. 
+
+% \subsection{Inter-scale Learning: B-modes + Temperature + E-modes}\label{sec:interscale_single_frequency_temperature_e_mode}
+
+% Formally, let $I(\hat{\mathbf{n}})$ denote the full-sky temperature intensity map and $E(\hat{\mathbf{n}})$ the full-sky E-mode polarization map, both containing information across all angular scales. The small-scale B-mode foreground component, previously denoted $F_S(\hat{\mathbf{n}})$ in Section \ref{sec:single-frequency-ML}, is now specified as $F_S^B(\hat{\mathbf{n}})$ to clarify its B-mode nature. The neural network, now denoted $\mathcal{N}_{\text{aug}}$, is trained to predict the large-scale B-mode foreground component $\hat{F}_L^B(\hat{\mathbf{n}})$ using this augmented set of inputs:
+% \begin{equation}
+%     \hat{F}_L^B(\hat{\mathbf{n}}) = \mathcal{N}_{\text{aug}}(F_S^B(\hat{\mathbf{n}}), I(\hat{\mathbf{n}}), E(\hat{\mathbf{n}})).
+%     \label{eq:net_aug_pred}
+% \end{equation}
+% The cleaned large-scale B-mode map, $T_L^{B, \text{pred}}(\hat{\mathbf{n}})$, is then obtained by subtracting this prediction from the observed large-scale B-mode map, $T_L^B(\hat{\mathbf{n}})$ (which itself consists of the large-scale CMB signal $S_L^B(\hat{\mathbf{n}})$ and the large-scale foregrounds $F_L^B(\hat{\mathbf{n}})$):
+% \begin{equation}
+%     T_L^{B, \text{pred}}(\hat{\mathbf{n}}) = T_L^B(\hat{\mathbf{n}}) - \hat{F}_L^B(\hat{\mathbf{n}}) = (S_L^B(\hat{\mathbf{n}}) + F_L^B(\hat{\mathbf{n}})) - \mathcal{N}_{\text{aug}}(F_S^B(\hat{\mathbf{n}}), I(\hat{\mathbf{n}}), E(\hat{\mathbf{n}})).
+%     \label{eq:cleaned_map_aug}
+% \end{equation}
+% The structure of the foregrounds provides motivation for this augmentation. As detailed in Section \ref{sec:data}, both the `d9` and `d12` dust models generate small-scale fluctuations that are correlated with, or modulated by, large-scale features related to intensity ($I(\hat{\mathbf{n}})$) and polarization ($E(\hat{\mathbf{n}})$). For instance, in the `d9` model, the final small-scale Q and U maps (which determine B-modes) are constructed by modulating the original large-scale intensity map ($I_{L}$, related to T) with derived small-scale polarization properties (cf. discussion surrounding equations \ref{eq:d9_q_final} and \ref{eq:d9_u_final}). Similarly, in the `d12` model, the small-scale B-mode random field ($\delta B_{base}$) is explicitly modulated by the large-scale polarization amplitude ($P_{L}^i$, computed using the B- and E-modes) for each layer before harmonic combination (cf. Eqn.~\ref{eq:d12_mod_b}). 
+
+% \section{Methods}\label{sec:methods}
+
+% \subsection{Frequency-Difference UNet - Baseline}\label{sec:method_freqdiff}
+
+% The frequency-difference UNet baseline follows \citet{mccarthy24_ml}:
+% \begin{itemize}
+%     \item \textbf{Input}: Observed CMB - ILC CMB (i.e., ILC foreground reconstructions), computed at multiple frequencies (95, 145, 220, 270 GHz).
+%     \item \textbf{Target}: $\Delta$ILC (ILC residuals), defined as the difference between ILC-reconstructed CMB and true CMB.
+% \end{itemize}
+
+% The observed map at frequency $\nu_i$ can be written as:
+% \be
+% T_{\nu_i}(\hat{\mathbf{n}}) = S(\hat{\mathbf{n}}) + F_{\nu_i}(\hat{\mathbf{n}}) + N_{\nu_i}(\hat{\mathbf{n}}),
+% \ee
+% where $S(\hat{\mathbf{n}})$ is the CMB signal (frequency-independent), $F_{\nu_i}(\hat{\mathbf{n}})$ is the foreground at frequency $\nu_i$, and $N_{\nu_i}(\hat{\mathbf{n}})$ is instrumental noise. A frequency difference between channels $i$ and $j$ gives:
+% \be
+% \Delta T_{\nu_i,\nu_j}(\hat{\mathbf{n}}) = T_{\nu_i}(\hat{\mathbf{n}}) - T_{\nu_j}(\hat{\mathbf{n}}) = F_{\nu_i}(\hat{\mathbf{n}}) - F_{\nu_j}(\hat{\mathbf{n}}) + N_{\nu_i}(\hat{\mathbf{n}}) - N_{\nu_j}(\hat{\mathbf{n}}),
+% \ee
+% which contains no CMB signal by construction. 
+
+% The network learns to predict ILC reconstruction errors from the frequency-dependent foreground characteristics present in the ILC foreground maps. Since both input and target are signal-free (CMB cancels in frequency differences and ILC residuals), the network preserves the cosmological signal by construction.
+
+% \subsection{Interscale (Single-Frequency) UNet}\label{sec:method_interscale}
+
+% We implement inter-scale cleaning using convolutional neural networks (U-Nets) \citep{ronneberger2015unet}, with two input configurations:
+
+\subsection{Network Architecture}\label{sec:architecture}
+
+We employ a U-Net architecture \citep{ronneberger2015unet}, which facilitates multi-scale feature integration and preserves spatial dimensionality through skip connections. The network consists of an encoder-decoder structure with:
+\begin{itemize}
+    \item \textbf{Encoder}: A series of downsampling blocks with feature dimensions $[32, 64, 128, 256, 512, 1024]$, each containing convolutional layers, batch normalization, and LeakyReLU activations (negative slope $0.01$).
+    \item \textbf{Decoder}: Symmetric upsampling blocks that reconstruct the spatial resolution, with skip connections concatenating encoder features to preserve fine-scale details.
+    \item \textbf{Input/Output}: Configurable input channels (1, 3, 8, or 16) and single-channel output (predicted foregrounds or ILC residuals).
+\end{itemize}
+
+\subsection{Training Configurations}\label{sec:training_configs}
+
+We implement multiple network configurations to explore different strategies for foreground removal. Table~\ref{tab:configurations} summarizes all training configurations, organized by input type and number of channels.
+
+\begin{table}[h]
+\centering
+\caption{Summary of network training configurations. All configurations use U-Net architecture and are trained to predict foreground components or ILC residuals.}
+\label{tab:configurations}
+\small
+\begin{tabular}{p{2.5cm}p{1cm}p{6.5cm}p{3cm}}
+\toprule
+\textbf{Configuration} & \textbf{Ch.} & \textbf{Input Description} & \textbf{Target} \\
+\midrule
+\multirow{2}{*}{\begin{tabular}[c]{@{}c@{}}Inter-Scale:\\B-modes only\end{tabular}} & 1 & Small-scale B-modes ($\ell > 200$) at single frequency & \multirow{2}{*}{Large-scale B-mode foregrounds ($\ell < 200$)} \\
+ & & & \\
+\midrule
+\multirow{2}{*}{\begin{tabular}[c]{@{}c@{}}Inter-Scale:\\B + T + E\end{tabular}} & 3 & Small-scale B-modes ($\ell > 200$); Temperature (all scales); E-modes (all scales) & \multirow{2}{*}{Large-scale B-mode foregrounds ($\ell < 200$)} \\
+ & & & \\
+\midrule
+\multirow{2}{*}{\begin{tabular}[c]{@{}c@{}}Combined:\\Freq. + Scale\end{tabular}} & 8 & Ch. 0-3: ILC foregrounds at 95, 145, 220, 270 GHz; Ch. 4-7: Small-scale B-modes ($\ell > 200$) at 95, 145, 220, 270 GHz & \multirow{2}{*}{ILC residuals} \\
+ & & & \\
+\midrule
+\multirow{4}{*}{\begin{tabular}[c]{@{}c@{}}Combined:\\Freq. + Scale\\+ T, E\end{tabular}} & 16 & Ch. 0-3: ILC foregrounds at 95, 145, 220, 270 GHz; Ch. 4-7: Small-scale B-modes ($\ell > 200$) at 95, 145, 220, 270 GHz; Ch. 8-11: All-scale E-modes at 95, 145, 220, 270 GHz; Ch. 12-15: All-scale T-modes at 95, 145, 220, 270 GHz & \multirow{4}{*}{ILC residuals} \\
+ & & & \\
+ & & & \\
+ & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The first two configurations (1 and 3 channels) test inter-scale learning using single-frequency maps decomposed by angular scale. These exploit correlations between small-scale and large-scale foreground structures while maintaining signal preservation, since primary CMB components at different scales are statistically independent.
+
+The latter two configurations (8 and 16 channels) combine frequency-difference information (from ILC foreground reconstructions) with inter-scale information. This hybrid approach leverages both frequency-dependent foreground properties and scale-dependent correlations, potentially providing more robust foreground removal.
+\subsection{Training Procedure}\label{sec:training}
+
+Networks are trained to minimize the mean squared error (MSE) between predicted and true targets:
+\be
+L_{\text{MSE}} = \mathbb{E} \left\| \hat{Y} - Y \right\|^2,
+\ee
+where $\hat{Y}$ is the network prediction and $Y$ is the target (large-scale foregrounds for inter-scale models, ILC residuals for frequency-difference models).
+
+Training uses the Adam optimizer with learning rate $10^{-4}$, batch size 32-64 (depending on model complexity), and early stopping based on validation loss. We employ data augmentation through random rotations and flips to increase dataset diversity. The training set consists of patches extracted from full-sky simulations, with train/validation/test splits of 80\%/10\%/10\%.
+
+\subsection{Metrics: Analyzing Model Performance, CMB/Foreground Reconstructions}\label{sec:metrics}
+
+We evaluate model performance using multiple metrics:
+
+\subsubsection{MSE}
+Mean squared error between predictions and targets, quantifying reconstruction accuracy.
+
+\subsubsection{Normalized Cross-Power Spectra}
+We compute normalized cross-power spectra $C_\ell^{\hat{Y} \times Y}$ between predictions and targets, binned with $\Delta\ell = 50$ up to $\ell = 200$. This quantifies harmonic-space fidelity and captures how well the network preserves angular power spectrum structure.
+
+\subsubsection{Spatial Correlations}
+We compute the Pearson correlation coefficient between predicted and true maps for each patch. This measures spatial alignment and structure recovery. We also perform null hypothesis testing by comparing actual correlations against distributions obtained by correlating predictions with randomly selected patches, ensuring statistical significance.
+
+\section{Simulations}\label{sec:simulations}
+
+\subsection{DustFilaments}\label{sec:dustfilaments}
+
+We train and validate our models using simulated full-sky maps from the DustFilaments model \citep{Herv_as_Caimapo_2022}, which simulates Galactic thermal dust emission by populating the Galaxy with millions of individual filaments. This model reproduces the statistical properties of \Planck 353 GHz dust polarization maps, including angular power spectra and non-Gaussian features, while providing independent realizations of the dust sky.
+
+The simulation pipeline generates:
+\begin{itemize}
+    \item \textbf{Foreground B-modes}: Polarized dust emission at multiple frequencies (95, 145, 220, 270 GHz), decomposed into large-scale ($\ell < 200$) and small-scale ($\ell > 200$) components.
+    \item \textbf{Foreground T and E modes}: Temperature and E-mode polarization maps at the same frequencies.
+    \item \textbf{Primordial CMB B-modes}: Realizations from a \Planck 2018 cosmology using \textsc{CAMB} \citep{2011ascl.soft02026L}.
+    \item \textbf{Observed maps}: $B(\hat{\mathbf{n}}) = S(\hat{\mathbf{n}}) + F(\hat{\mathbf{n}})$ at each frequency.
+\end{itemize}
+
+We extract $128 \times 128$ pixel patches (corresponding to $\sim 1.4^\circ \times 1.4^\circ$ at $N_{\text{side}} = 1024$) from the full-sky maps, applying harmonic filtering to separate large and small scales. Patches are normalized using training set statistics to stabilize training.
+
+\section{Results}\label{sec:results}
+
+\subsection{Interscale (Single-Frequency) UNet}\label{sec:results_interscale}
+
+\subsubsection{Small-Scale B-Modes $\rightarrow$ Large-Scale B}
+
+We evaluate the network's ability to reconstruct large-scale foreground B-modes from small-scale information. Figure~\ref{fig:fg_reconstruction} shows representative examples of foreground reconstruction for test patches. The top row displays spatial maps: (a) small-scale foreground B-modes ($\ell > 200$, input channel), (b) large-scale foreground B-modes ($\ell < 200$, target), and (c) UNet prediction. The bottom row shows quantitative metrics: (d) normalized cross-power spectrum between prediction and target, (e) null correlation test histogram, and (f) MSE comparison hexbin plot.
+
+\textbf{Spatial Correlation Analysis}: Across the test set, we achieve a mean spatial correlation of $0.45 \pm 0.29$ (mean $\pm$ standard deviation) between predicted and true large-scale foregrounds, with $35\%$ of patches showing correlations above $0.5$. The null correlation test (panel e) compares the actual correlation for each patch against the distribution of correlations between the prediction and 100 randomly selected target patches. For representative patches, the actual correlation lies $>5\sigma$ above the mean of the null distribution, confirming statistical significance.
+
+\textbf{Harmonic Space Correlation}: The mean cross-spectrum correlation across all test patches is $0.49$, indicating strong harmonic-space fidelity. Panel (d) shows the cross-power spectrum for a representative patch (green solid line), compared to the mean $\pm 1\sigma$ uncertainty band across all patches (brown dashed line with shaded region) and the null cross-spectrum (gray dotted line).
+
+\textbf{Mean Squared Error}: The mean MSE between predicted and true large-scale foregrounds is $3.5 \times 10^{-4}$ on the test set, compared to the inherent power of the target (MSE between target and zero) of $\sim 10^{-2}$.
+
+\subsubsection{Impact of Temperature and E-Modes}
+
+Figure~\ref{fig:mse_progression} shows the MSE progression from baseline to multi-channel models. The B-mode only model achieves significant improvement over the baseline, and the T,E,B model further reduces MSE, demonstrating the benefit of incorporating multi-channel information.
+
+Figure~\ref{fig:correlation_comparison} compares the distribution of spatial correlations between UNet predictions and true targets for the two model configurations. Mean test correlations are $0.45 \pm 0.29$ (B-only) and $0.48 \pm 0.28$ (T,E,B), with the multi-channel model showing slightly better average performance and more consistent results (smaller standard deviation).
+
+Figure~\ref{fig:input_channels} (generated when using T+E channels) illustrates the three-channel input to the UNet: (a) small-scale foreground B-modes ($\ell > 200$), (b) foreground temperature (all scales), and (c) foreground E-modes (all scales).
+
+\subsubsection{CMB Reconstruction Quality}
+
+We evaluate the downstream impact on CMB reconstruction by computing cleaned maps: $B^{\text{pred}}_L = B_L - \hat{F}_L$. Figure~\ref{fig:cmb_reconstruction} shows a comprehensive 1$\times$6 panel analysis for representative test patches.
+
+\textbf{Spatial Correlation with True CMB}: The mean spatial correlation between UNet-cleaned CMB reconstructions and pure CMB is $0.82 \pm 0.15$ on the test set, compared to $0.45 \pm 0.20$ for uncleaned observed B-modes.
+
+\textbf{Cross-Power Spectra}: The UNet reconstruction shows significantly higher cross-power than the uncleaned observed signal across all multipoles, with the cross-spectrum approaching unity at large scales ($\ell < 100$). The cross-spectrum between UNet reconstruction and true CMB matches the true CMB auto-spectrum, confirming signal preservation.
+
+\textbf{MSE Comparison}: On average, the UNet reconstruction achieves a $60\%$ reduction in MSE compared to uncleaned observations.
+
+\subsection{Frequency-Difference + Inter-Scale UNet}\label{sec:results_combined}
+
+\subsubsection{8 Channels: Frequency Difference + Small-Scale B}
+
+[Results for 8-channel model combining ILC foregrounds and small-scale B-modes across 4 frequencies]
+
+\subsubsection{16 Channels: Frequency Difference + Small-Scale B + T, E}
+
+[Results for 16-channel model adding T and E modes across 4 frequencies]
+
+\subsection{ILC with Additional Channel}\label{sec:results_ilc_enhanced}
+
+We evaluate the effectiveness of using UNet predictions as an additional channel in the ILC combination. The UNet-enhanced ILC uses the UNet-predicted CMB reconstruction as a synthetic frequency channel, allowing the ILC to optimally combine multi-frequency observations with the ML-enhanced prediction.
+
+[Results comparing vanilla ILC (4 frequencies) vs. enhanced ILC (4 frequencies + UNet channel)]
+
+\section{Discussion}\label{sec:discussion}
+
+[Discussion of key findings, comparison with previous work, limitations, and future directions]
+
+\section{Conclusions}\label{sec:conclusions}
+
+[Summary of main results and implications]
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Figures/cmb_reconstruction_sample_104134.png}
+    \caption{CMB reconstruction quality for a representative test patch. Left to right: (a) Pure primordial CMB B-modes (ground truth), (b) Observed B all-scales (uncleaned), (c) UNet CMB reconstruction with spatial correlation coefficients comparing reconstructed CMB to pure CMB for both observed (uncleaned) and UNet-cleaned cases, (d) Normalized cross-power spectra comparing UNet and observed reconstructions to pure CMB with mean $\pm 1\sigma$ uncertainty bands and null cross-spectrum, (e) Null correlation test histogram with actual correlation marked (green dashed line) and mean of null distribution (gray vertical line), (f) MSE comparison across all test patches (hexbin density plot) with diagonal reference line and sample position marked.}
+    \label{fig:cmb_reconstruction}
+\end{figure}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Figures/fg_reconstruction_sample_104134.png}
+    \caption{Foreground prediction quality for a representative test patch. Top row: (a) Small-scale foreground B-modes ($\ell > 200$, input), (b) Large-scale foreground B-modes ($\ell < 200$, target), (c) UNet prediction. Bottom row: (d) Normalized cross-power spectrum between prediction and target with mean $\pm 1\sigma$ uncertainty bands and null cross-spectrum, (e) Null correlation test histogram with actual correlation (green solid line) and mean correlation (blue dashed line) marked, (f) MSE comparison showing prediction error vs. target power (hexbin density plot) with diagonal reference line.}
+    \label{fig:fg_reconstruction}
+\end{figure}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Figures/input_channels_sample_4321.png}
+    \caption{UNet input channels for a representative test patch (generated when using T+E channels): (a) Small-scale B-modes ($\ell > 200$), (b) Temperature (all scales), (c) E-modes (all scales). These panels illustrate the three-channel input to the UNet, showing the spatial structure of the information available to the model for predicting large-scale B-mode foregrounds.}
+    \label{fig:input_channels}
+\end{figure}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Figures/mse_progression.png}
+    \caption{MSE progression showing systematic improvement from ILC baseline (single-frequency, no prediction) to B-mode only UNet to T,E,B multi-channel UNet. Error bars represent $\pm 1$ standard deviation across all test patches. Y-axis uses logarithmic scaling. Connecting lines emphasize the decreasing trend. Numerical MSE values are displayed above each point for precise quantification.}
+    \label{fig:mse_progression}
+\end{figure}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Figures/correlation_comparison.png}
+    \caption{Spatial correlation distributions for B-mode only (teal) and T,E,B multi-channel (orange) UNet models. Distributions are approximated from mean and standard deviation statistics using Gaussian distributions, shown as semi-transparent filled areas. Vertical dashed lines mark the mean correlation for each model. Higher mean correlation with smaller standard deviation indicates better and more consistent performance.}
+    \label{fig:correlation_comparison}
+\end{figure}
+
+\section*{Acknowledgments}
+
+\bibliographystyle{apsrev4-1}
+\bibliography{references}
+
+\end{document}
