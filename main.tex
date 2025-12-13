@@ -398,28 +398,59 @@ This scale separation exploits the statistical independence of CMB modes across 
 We evaluate model performance using the following validation metrics:
 
 \subsection{MSE}
-For all networks, we compute two types of Mean Square Error (MSE) metrics. First, I calculate for each patch:
+For all networks, we compute multiple types of Mean Square Error (MSE) metrics. For multi-frequency models predicting ILC residuals, we compute the prediction MSE for each patch:
 \begin{equation}
-    \text{MSE}_{\text{pred}} = \sum_{p=1}^{N_p} \left(\Delta\hat{T}(\hat{\mathbf{n}}_p) - \Delta(\hat T({\mathbf{n}}_p)\right)^2,
+    \text{MSE}_{\text{pred}} = \frac{1}{N_p} \sum_{p=1}^{N_p} \left(\Delta\hat{T}^{\mathrm{ILC}}(\hat{\mathbf{n}}_p) - \Delta T^{\mathrm{ILC}}(\hat{\mathbf{n}}_p)\right)^2,
     \label{eq:pred_mse_metric}
 \end{equation}
-where $\Delta\hat{T}(\hat{\mathbf{n}}_p)$ is the NN- predicted residual, and $\Delta(\hat T({\mathbf{n}}_p)$ is the true ILC residual. This metric quantifies how accurate the NN-prediction is with respect to the true target. I also compute:
+where $\Delta\hat{T}^{\mathrm{ILC}}(\hat{\mathbf{n}}_p)$ is the network-predicted ILC residual, and $\Delta T^{\mathrm{ILC}}(\hat{\mathbf{n}}_p)$ is the true ILC residual. This metric quantifies how accurately the network predicts the ILC residual target.
+
+For single-frequency models predicting large-scale foregrounds, we compute the foreground prediction MSE:
 \begin{equation}
-    \text{MSE}_{\text{recon}} = \frac{1}{N_p} \sum_{p=1}^{N_p} \left(T^{\text{pred}}(\hat{\mathbf{n}}_p) - S(\hat{\mathbf{n}}_p)\right)^2,
+    \text{MSE}_{\text{pred}} = \frac{1}{N_p} \sum_{p=1}^{N_p} \left(\hat{F}_L(\hat{\mathbf{n}}_p) - F_L(\hat{\mathbf{n}}_p)\right)^2,
+\end{equation}
+where $\hat{F}_L$ is the predicted large-scale foreground and $F_L$ is the true large-scale foreground.
+
+We also compute the CMB reconstruction MSE for both single-frequency and multi-frequency models:
+\begin{equation}
+    \text{MSE}_{\text{recon}} = \frac{1}{N_p} \sum_{p=1}^{N_p} \left(\hat{S}^{\mathrm{coi}}(\hat{\mathbf{n}}_p) - S^{\mathrm{coi}}(\hat{\mathbf{n}}_p)\right)^2,
     \label{eq:recon_mse_metric}
 \end{equation}
-where $T^{\text{pred}}$ is the final cleaned map and $S$ is the true CMB signal. This MSE quantifies the improvement the network achieves in the final primary CMB reconstruction over the ILC solution. Hence, I compare $\text{MSE}_{\text{recon}}$ of the network-corrected ILC reconstruction with that of the baseline ILC reconstruction. A lower MSE indicates improved cleaning performance.
+where $\hat{S}^{\mathrm{coi}}$ is the final cleaned CMB reconstruction and $S^{\mathrm{coi}}$ is the true CMB signal. This MSE quantifies the improvement the network achieves in the final primary CMB reconstruction compared to the baseline ILC or observed maps. We compare $\text{MSE}_{\text{recon}}$ of the network-corrected reconstruction with that of the baseline method (ILC for multi-frequency models, observed maps for single-frequency models). A lower MSE indicates improved cleaning performance.
+
+Additionally, we compute the variance of the CMB reconstructions ($\text{Var}[\hat{S}^{\mathrm{coi}}]$) and compare it to the true CMB variance ($\text{Var}[S^{\mathrm{coi}}]$) to assess whether the reconstruction preserves the signal power spectrum appropriately.
 
 \subsection{Spatial Correlations}
-For the inter-scale cleaning networks, I also evaluate the spatial alignment between predicted and true foregrounds using the Pearson correlation coefficient: $\rho_{\text{spatial}} = \frac{\text{Cov}(\hat{F}_L, F_L)}{\sigma_{\hat{F}_L} \sigma_{F_L}}$,
-where $\text{Cov}$ denotes covariance and $\sigma$ represents standard deviation. To assess the statistical significance of this correlation, we compute the distribution of \textit{null} correlation coefficients between each predicted map and all target maps in the dataset. A correlation is considered significant if it exceeds the 95th percentile of this distribution (approximately at least 2$\sigma$ above the mean). In other words, an outlying correlation value demonstrates that the network has successfully identified spatial patterns in the small-scale input that are genuinely predictive of the large-scale features in the target patch.
+We evaluate the spatial alignment between predicted and true maps using the Pearson correlation coefficient. For foreground predictions, we compute:
+\begin{equation}
+    \rho_{\text{spatial}} = \frac{\text{Cov}(\hat{F}_L, F_L)}{\sigma_{\hat{F}_L} \sigma_{F_L}},
+\end{equation}
+where $\text{Cov}$ denotes covariance and $\sigma$ represents standard deviation. For CMB reconstructions, we compute the correlation between the reconstructed and true CMB maps:
+\begin{equation}
+    \rho_{\text{spatial}} = \frac{\text{Cov}(\hat{S}^{\mathrm{coi}}, S^{\mathrm{coi}})}{\sigma_{\hat{S}^{\mathrm{coi}}} \sigma_{S^{\mathrm{coi}}}}.
+\end{equation}
+
+To assess the statistical significance of these correlations, we perform null hypothesis tests by computing the distribution of correlation coefficients between each predicted/reconstructed map and 100 randomly selected target/CMB patches from other test samples (excluding the matching patch). The actual correlation is compared against this null distribution, with correlations significantly exceeding the null distribution (typically $>5\sigma$ above the mean) confirming that the network has genuinely learned predictive spatial patterns rather than correlating by chance.
 
 \subsection{Normalized Cross-Power Spectra}
 
-For foreground predictions, we evaluate the correlation between predicted and true foregrounds in harmonic space through their binned cross-power spectrum: $C_\ell^{\hat{F}_L \times F_L} = \frac{1}{2\ell+1} \sum_{m=-\ell}^{\ell} \hat{a}_{\ell m}^{\hat{F}_L} (a_{\ell m}^{F_L})^*$,
-where $\hat{a}_{\ell m}^{\hat{F}_L}$ and $a_{\ell m}^{F_L}$ are the spherical harmonic coefficients of the predicted and true foreground maps, respectively. The resulting cross-spectrum is binned with bin width of $\Delta \ell = 50$. Similar to the spatial analysis, we compute the distribution of \textit{null} cross-power spectra between each prediction and all target maps to assess statistical significance.
+We evaluate correlations in harmonic space through normalized cross-power spectra. For foreground predictions, we compute the cross-power spectrum:
+\begin{equation}
+    C_\ell^{\hat{F}_L \times F_L} = \frac{1}{2\ell+1} \sum_{m=-\ell}^{\ell} \hat{a}_{\ell m}^{\hat{F}_L} (a_{\ell m}^{F_L})^*,
+\end{equation}
+where $\hat{a}_{\ell m}^{\hat{F}_L}$ and $a_{\ell m}^{F_L}$ are the spherical harmonic coefficients of the predicted and true foreground maps, respectively. The cross-power spectrum is normalized by the geometric mean of the auto-power spectra:
+\begin{equation}
+    \tilde{C}_\ell^{\hat{F}_L \times F_L} = \frac{C_\ell^{\hat{F}_L \times F_L}}{\sqrt{C_\ell^{\hat{F}_L \times \hat{F}_L} C_\ell^{F_L \times F_L}}},
+\end{equation}
+yielding a normalized cross-power spectrum that ranges between $-1$ and $+1$. The resulting spectrum is binned with bin width $\Delta \ell = 50$ and computed separately for all-scale ($\ell \leq 2000$) and large-scale ($\ell < 200$) analyses for foreground reconstructions.
 
-For CMB reconstructions, we use the cross-power spectrum between the reconstructed and true CMB maps to verify the unbiasedness condition given in Equation~\eqref{eq:unbiasedness_condition}. Specifically, we compute the normalized cross-power spectrum $C_\ell^{\hat{S} \times S} / C_\ell^{S \times S}$ and verify that it approaches unity across all multipoles, which demonstrates that the reconstruction preserves the cosmological signal without bias. This validation is critical for ensuring that the signal-preserving framework is functioning correctly and that subsequent cosmological inference remains unbiased.
+For CMB reconstructions, we compute the normalized cross-power spectrum between the reconstructed and true CMB maps:
+\begin{equation}
+    \tilde{C}_\ell^{\hat{S} \times S} = \frac{C_\ell^{\hat{S} \times S}}{\sqrt{C_\ell^{\hat{S} \times \hat{S}} C_\ell^{S \times S}}}.
+\end{equation}
+This normalized cross-power spectrum is used to verify the unbiasedness condition given in Equation~\eqref{eq:unbiasedness_condition}. Specifically, we verify that $\tilde{C}_\ell^{\hat{S} \times S}$ approaches unity across all multipoles ($\ell < 200$ for large-scale analysis), which demonstrates that the reconstruction preserves the cosmological signal without bias. This validation is critical for ensuring that the signal-preserving framework is functioning correctly and that subsequent cosmological inference remains unbiased.
+
+To assess statistical significance, we compute null cross-power spectra by calculating the cross-power spectrum between each reconstructed map and random CMB/foreground patches from other test samples. We report the mean cross-power spectrum across all patches, along with the 16th and 84th percentiles (equivalent to $\pm 1\sigma$ for a Gaussian distribution) of the distribution across patches at each multipole bin, providing uncertainty bands that reflect the patch-to-patch variation in reconstruction quality.
 
 \section{Results}\label{sec:results}
 
