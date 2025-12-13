@@ -96,7 +96,14 @@ where $i$ indicates a frequency channel, $\hat{\mathbf{n}}$ is a unit vector on 
     \item \textbf{Signal-free targets:} Second, the network is constrained to predict targets that are uncorrelated with $S^{\mathrm{coi}}(\hat{\mathbf{n}})$. This enables one to subtract the network prediction from  $B_i(\hat{\mathbf{n}})$ without inadvertently removing parts of  $S^{\mathrm{coi}}(\hat{\mathbf{n}})$. If the network has inherent biases or inaccurate predictions, its predictions would not affect the signal we wish to preserve.
 \end{itemize}
 
-This dual constraint ensures that even if the network's learned mapping is imperfect or if simulations contain modeling errors, the primary CMB signal remains unbiased for cosmological inference down the line. While one is free to choose inputs and targets that these criteria, in this work, we construct them by exploiting the relationships between large- and small-scale structures within the different components of the observation model. Specifically, we aim to separate the signal from the foregrounds at large angular scales where primordial B-modes are expected to be detected, using only information from the independent small angular scales where foregrounds dominate and the primordial CMB signal is negligible. 
+This dual constraint ensures that even if the network's learned mapping is imperfect or if simulations contain modeling errors, the primary CMB signal remains unbiased for cosmological inference down the line. The mathematical manifestation of this unbiasedness is that the cross-power spectrum between the reconstructed signal $\hat{S}^{\mathrm{coi}}$ and the true signal $S^{\mathrm{coi}}$ equals the auto-power spectrum of the true signal:
+\begin{equation}
+    \langle \hat{S}^{\mathrm{coi}} S^{\mathrm{coi}} \rangle = \langle S^{\mathrm{coi}} S^{\mathrm{coi}} \rangle,
+    \label{eq:unbiasedness_condition}
+\end{equation}
+which we verify in our results (see Section~\ref{sec:metrics}). This condition holds by construction because the network operates only on signal-free inputs and predicts signal-free targets, ensuring that the signal propagates through the reconstruction pipeline without modification.
+
+While one is free to choose inputs and targets that satisfy these criteria, in this work, we construct them by exploiting the relationships between large- and small-scale structures within the different components of the observation model. Specifically, we aim to separate the signal from the foregrounds at large angular scales where primordial B-modes are expected to be detected, using only information from the independent small angular scales where foregrounds dominate and the primordial CMB signal is negligible. 
 
 Recall that the primary CMB signal, $S(\hat{\textbf{n}})$, can be described as a statistically isotropic Gaussian random field, and consequently exhibits statistical independence between different angular multipoles $\ell$. In contrast, Galactic foregrounds in the form of polarized thermal dust emission is driven by processes like turbulence in the magnetized interstellar medium that couple various scales\citep{lazarian2000turbulence, cho2002mhd}. This is consistent with the filamentary nature of dust distribution in the Milky Way which create coherent structures across multiple angular scales. Consequently, $F_i(\hat{\textbf{n}})$ significant correlations between structures observed at different harmonic modes. We can thus exploit these inter-scale relations to train a network on information at one set of scales, while preserving the primary CMB signal in the other independent set of target scales. 
 
@@ -184,16 +191,23 @@ To fulfill the second constraint, we again follow \cite{mccarthy24_ml} and train
 \end{equation}
 In the above equation, one recognizes that the ILC solution, $\hat{B}^{\mathrm{ILC}}$, contains the full primary CMB signal. Consequently, the signal of interest is removed upon subtraction from the observed map, $B_i$, resulting in a signal-free target.
 
-Ultimately, the neural network improved reconstruction of the signal of interest can be expressed as
+Following the general framework of \cite{mccarthy24_ml}, any signal-preserving reconstruction function must have the form:
 \begin{equation}
- B^{\mathrm{pred}}_L =  B^{\mathrm{ILC}}_L - \hat{\Delta B^{\mathrm ILC}}_L = \sum _i w_i B_i + \tilde f(F),\label{ml_pred_coi}
+    f(B^i) = \sum_i w_i B_i + \tilde{f}(F),
+    \label{eq:general_signal_preserving}
 \end{equation}
-where the weights, $w_i$, are given by the ILC solution. Since they are unbiased, the above can be written as:
+where $w_i$ are weights satisfying the ILC condition $\sum_i a_i w_i = 1$ (for CMB B-modes, $a_i = 1$ for all frequencies), and $\tilde{f}$ is a non-linear function operating only on signal-free combinations of the data. In our implementation, we choose $w_i$ to be the ILC weights that minimize variance, and $\tilde{f}$ to be the neural network that predicts ILC residuals.
+
+The neural network improved reconstruction of the signal of interest can then be expressed as:
+\begin{equation} #  f(B^i) = S(\hat{\mathbf{n}}) +  \sum_i w_i (F_i) + \tilde f(F).
+ B^{\mathrm{pred}}_L =  B^{\mathrm{ILC}}_L - \hat{\Delta B^{\mathrm ILC}}_L = \sum _i w_i B_i - \tilde{f}(\hat{F}^{\mathrm{ILC}}_i, B_S, \ldots),\label{ml_pred_coi}
+\end{equation}
+where the weights $w_i$ are given by the ILC solution, and $\tilde{f}$ denotes the neural network operating on signal-free inputs (ILC foreground estimates $\hat{F}^{\mathrm{ILC}}_i$, small-scale B-modes $B_S$, and optionally T/E modes). Since the ILC weights satisfy $\sum_i a_i w_i = 1$, the linear term preserves the signal, and since $\tilde{f}$ operates only on signal-free inputs, the entire expression can be written as:
 \begin{equation}
- f(B^i) = S(\hat{\mathbf{n}}) +  \sum_i w_i (F_i) + \tilde f(F).
+ B^{\mathrm{pred}}_L = S_L(\hat{\mathbf{n}}) +  \sum_i w_i (F_i) + \tilde{f}(F),
  \label{eq:ultimate_reconstruction}
 \end{equation}
-Again, we see the emergence of the key constraint: $\sum_i w_iB_i=0$, ensuring that any signal component is completely removed from the input to the neural network. 
+which maintains the signal-preserving property. The key constraint is that $\sum_i a_i c_i = 0$ for any coefficients $c_i$ used to construct signal-free inputs to $\tilde{f}$, ensuring that signal components are completely removed from the network inputs. 
 
 \subsubsection{Input: $\hat{F}^{\rm{ILC}}_i$ + Small-scale B-modes}\label{sec:multifreq_small_b}
 We first investigate the combination of frequency-difference maps with small-scale B-modes as inputs to train a network to predict the ILC residuals. This is analogous to the inter-scale learning framework described in Sec~\ref{sec:interscale_b}. Hence, the network prediction can be written as:
@@ -281,13 +295,16 @@ In the subsequent section, we will detail the network architectures used to impl
 
 \section{Network Architecture}\label{sec:architecture}
 
-We employ a U-Net architecture \citep{ronneberger2015unet}, which facilitates multi-scale feature integration and preserves spatial dimensionality through skip connections. The network consists of an encoder-decoder structure with:
+We employ a U-Net architecture \citep{ronneberger2015unet}, which is well-suited for image-to-image translation tasks requiring multi-scale feature learning. The encoder-decoder structure with skip connections enables the network to capture correlations between small-scale input features (e.g., $\ell > 200$ foreground structures) and large-scale target features (e.g., $\ell < 200$ foreground contamination), while preserving fine-grained spatial details throughout the network depth.
+
+The network adapts to different input configurations based on the training task:
 \begin{itemize}
-    \item \textbf{Encoder}: A series of downsampling blocks with feature dimensions $[32, 64, 128, 256, 512, 1024]$, each containing convolutional layers, batch normalization, and LeakyReLU activations (negative slope $0.01$).
-    \item \textbf{Decoder}: Symmetric upsampling blocks that reconstruct the spatial resolution, with skip connections concatenating encoder features to preserve fine-scale details.
-    \item \textbf{Input/Output}: Configurable input channels (1, 3, 8, or 16) and single-channel output (predicted foregrounds or ILC residuals).
+    \item \textbf{Single-frequency models}: 1 channel (B-mode only) or 3 channels (B + T + E modes) at a single frequency
+    \item \textbf{Multi-frequency models}: 8 channels (4-frequency ILC foregrounds + 4-frequency small-scale B-modes) or 16 channels (8 channels above + 4-frequency E-modes + 4-frequency T-modes)
 \end{itemize}
-Details of the network hyperparameter and architecture optimization can be found in Appendix~\ref{app:nn_archi}.
+All configurations share the same core architecture: an encoder with feature dimensions $[32, 64, 128, 256, 512, 1024]$ using double convolutional blocks (3×3 convolutions, batch normalization, LeakyReLU with negative slope $0.01$), average pooling for downsampling, and transpose convolutions with skip connections for upsampling. The single-channel output predicts either large-scale foregrounds (single-frequency models) or ILC residuals (multi-frequency models).
+
+Complete architecture specifications, including layer details, hyperparameters, and training configurations, are provided in Appendix~\ref{app:nn_archi}.
 
 \section{Training Configurations}\label{sec:training_configs}
 
@@ -336,17 +353,45 @@ Training uses the Adam optimizer with learning rate $10^{-4}$, batch size 32-64 
 
 \subsection{DustFilaments}\label{sec:dustfilaments}
 
-We train and validate our models using simulated full-sky maps from the DustFilaments model \citep{Herv_as_Caimapo_2022}, which simulates Galactic thermal dust emission by populating the Galaxy with millions of individual filaments. This model reproduces the statistical properties of \Planck 353 GHz dust polarization maps, including angular power spectra and non-Gaussian features, while providing independent realizations of the dust sky.
+We train and validate our models using simulated full-sky maps from the DustFilaments model \citep{Herv_as_Caimapo_2022}, which simulates Galactic thermal dust emission by populating the Galaxy with millions of individual filaments. The DustFilaments code\footnote{Available at \url{https://github.com/chervias/DustFilaments}} generates thermal dust maps by integrating a population of 3D filaments painted onto the celestial sphere, reproducing the statistical properties of \Planck 353 GHz dust polarization maps, including angular power spectra and non-Gaussian features, while providing independent realizations of the dust sky.
 
-The simulation pipeline generates:
+The model's three main components are: (1) \texttt{get\_MagField}, which generates a 3D magnetic field cube with an optional large-scale Galactic component and an isotropic random component; (2) \texttt{get\_FilPop}, which creates a random population of filaments aligned with the magnetic field; and (3) \texttt{Paint\_Filament}, which paints each filament into HEALPix maps of temperature and polarization (T, Q, U Stokes parameters) at specified frequencies. The filament population is generated deterministically given fixed seeds for both the magnetic field and the filament population, enabling reproducible realizations.
+
+\subsubsection{Simulation Parameters}
+
+We generated 150 independent full-sky realizations using the DustFilaments code with the following parameters:
 \begin{itemize}
-    \item \textbf{Foreground B-modes}: Polarized dust emission at multiple frequencies (95, 145, 220, 270 GHz), decomposed into large-scale ($\ell < 200$) and small-scale ($\ell > 200$) components.
-    \item \textbf{Foreground T and E modes}: Temperature and E-mode polarization maps at the same frequencies.
-    \item \textbf{Primordial CMB B-modes}: Realizations from a \Planck 2018 cosmology using \textsc{CAMB} \citep{2011ascl.soft02026L}.
-    \item \textbf{Observed maps}: $B(\hat{\mathbf{n}}) = S(\hat{\mathbf{n}}) + F(\hat{\mathbf{n}})$ at each frequency.
+    \item \textbf{HEALPix resolution}: $N_{\text{side}} = 1024$ (pixel resolution $\sim 3.4$ arcmin, $12 N_{\text{side}}^2 = 12,582,912$ pixels)
+    \item \textbf{Number of filaments}: 180,500,000 per realization
+    \item \textbf{Frequencies}: 95, 145, 220, and 270 GHz (matching CMB-S4 and Simons Observatory frequency bands)
+    \item \textbf{Maximum multipole}: $\ell_{\max} = 2000$ (harmonic decomposition limit for subsequent analysis)
+    \item \textbf{Random seeds}: Each simulation uses a unique seed generated deterministically as $\text{seed} = 42424242 + n \times 104729$ for simulation index $n \in [1, 150]$, ensuring statistical independence between realizations while maintaining reproducibility
 \end{itemize}
 
-We extract $128 \times 128$ pixel patches (corresponding to $\sim 1.4^\circ \times 1.4^\circ$ at $N_{\text{side}} = 1024$) from the full-sky maps, applying harmonic filtering to separate large and small scales. Patches are normalized using training set statistics to stabilize training.
+%Simulations were executed using MPI parallelization via SLURM job arrays, with each simulation running on 4 compute nodes using 16 MPI tasks per node and 8 OpenMP threads per task (64 total cores per simulation). Each full-sky realization required approximately 1--2 hours of wall-clock time, with the filament painting computation distributed across MPI processes such that each process handles $N_{\text{fils}}/N_{\text{processes}}$ filaments. The magnetic field cube and multi-resolution HEALPix maps (maintaining all resolutions from $N_{\text{side}} = 128$ up to the target resolution) were stored in memory per MPI process, as required by the DustFilaments algorithm.
+
+\subsubsection{Output Maps and Processing}
+
+For each simulation realization and frequency, the DustFilaments pipeline generates full-sky maps in HEALPix format containing:
+\begin{itemize}
+    \item \textbf{Foreground T, Q, U maps}: Full-sky Stokes parameter maps of thermal dust emission in thermodynamic temperature units ($\mu$K)
+    \item \textbf{Foreground B-modes}: Computed from Q and U maps via spherical harmonic decomposition, yielding polarized dust emission $F^B(\hat{\mathbf{n}})$ at all scales
+    \item \textbf{Foreground T and E modes}: Temperature $F^T(\hat{\mathbf{n}})$ and E-mode polarization $F^E(\hat{\mathbf{n}})$ derived from the T and Q/U maps respectively
+\end{itemize}
+
+We compute primordial CMB B-mode realizations independently using \textsc{CAMB} \citep{2011ascl.soft02026L} with \Planck 2018 cosmological parameters, yielding $S^B(\hat{\mathbf{n}})$ maps that are statistically independent from the foreground simulations. Observed maps are then constructed as $B(\hat{\mathbf{n}}) = S^B(\hat{\mathbf{n}}) + F^B(\hat{\mathbf{n}})$ at each frequency, combining the CMB signal with the dust foreground contamination.
+
+\subsubsection{Patch Extraction and Scale Decomposition}
+
+We extract $128 \times 128$ pixel patches (corresponding to $\sim 1.4^\circ \times 1.4^\circ$ at $N_{\text{side}} = 1024$) from full-sky maps using a Cylindrical Equal-Area (CAR) projection centered on randomly selected sky positions. Approximately 1,280 patches are extracted per full-sky simulation, yielding a total dataset of $\sim 192,000$ patches (150 simulations × 1,280 patches per simulation).
+
+Harmonic filtering is applied in spherical harmonic space to decompose foreground maps into large-scale ($\ell < 200$) and small-scale ($\ell > 200$) components:
+\begin{itemize}
+    \item \textbf{Large-scale foregrounds} ($F_L$): Target for single-frequency inter-scale models, representing contamination at the angular scales where primordial B-modes are expected ($\ell \lesssim 200$)
+    \item \textbf{Small-scale foregrounds} ($F_S$): Input for inter-scale models, where foregrounds dominate the signal and the primordial CMB B-mode power is negligible ($\ell > 200$)
+\end{itemize}
+
+This scale separation exploits the statistical independence of CMB modes across different multipoles while leveraging the coherent structure of Galactic dust foregrounds across scales. For single-frequency models, CMB realizations are scaled by a factor of 0.05 to match expected signal amplitudes in observed data. The dataset is split into training (80\%), validation (10\%), and test (10\%) sets, with stratification by simulation index to ensure that patches from the same simulation do not appear in multiple splits, maintaining statistical independence between training, validation, and test data.
 
 \section{Validation Metrics: Analyzing Model Performance, and Reconstructions}\label{sec:metrics}
 
@@ -370,8 +415,11 @@ For the inter-scale cleaning networks, I also evaluate the spatial alignment bet
 where $\text{Cov}$ denotes covariance and $\sigma$ represents standard deviation. To assess the statistical significance of this correlation, we compute the distribution of \textit{null} correlation coefficients between each predicted map and all target maps in the dataset. A correlation is considered significant if it exceeds the 95th percentile of this distribution (approximately at least 2$\sigma$ above the mean). In other words, an outlying correlation value demonstrates that the network has successfully identified spatial patterns in the small-scale input that are genuinely predictive of the large-scale features in the target patch.
 
 \subsection{Normalized Cross-Power Spectra}
-I also evaluate the correlation between predicted and true foregrounds in harmonic space through their binned cross-power spectrum: $C_\ell^{\hat{F}_L \times F_L} = \frac{1}{2\ell+1} \sum_{m=-\ell}^{\ell} \hat{a}_{\ell m}^{\hat{F}_L} (a_{\ell m}^{F_L})^*$,
-where $\hat{a}_{\ell m}^{\hat{F}_L}$ and $a_{\ell m}^{F_L}$ are the spherical harmonic coefficients of the predicted and true foreground maps, respectively. The resulting cross-spectrum is binned with bin width of $\Delta \ell = 50$. Similar to the spatial analysis, I compute the distribution of \textit{null} cross-power spectra between each prediction and all target maps to assess statistical significance.
+
+For foreground predictions, we evaluate the correlation between predicted and true foregrounds in harmonic space through their binned cross-power spectrum: $C_\ell^{\hat{F}_L \times F_L} = \frac{1}{2\ell+1} \sum_{m=-\ell}^{\ell} \hat{a}_{\ell m}^{\hat{F}_L} (a_{\ell m}^{F_L})^*$,
+where $\hat{a}_{\ell m}^{\hat{F}_L}$ and $a_{\ell m}^{F_L}$ are the spherical harmonic coefficients of the predicted and true foreground maps, respectively. The resulting cross-spectrum is binned with bin width of $\Delta \ell = 50$. Similar to the spatial analysis, we compute the distribution of \textit{null} cross-power spectra between each prediction and all target maps to assess statistical significance.
+
+For CMB reconstructions, we use the cross-power spectrum between the reconstructed and true CMB maps to verify the unbiasedness condition given in Equation~\eqref{eq:unbiasedness_condition}. Specifically, we compute the normalized cross-power spectrum $C_\ell^{\hat{S} \times S} / C_\ell^{S \times S}$ and verify that it approaches unity across all multipoles, which demonstrates that the reconstruction preserves the cosmological signal without bias. This validation is critical for ensuring that the signal-preserving framework is functioning correctly and that subsequent cosmological inference remains unbiased.
 
 \section{Results}\label{sec:results}
 
@@ -523,7 +571,107 @@ We evaluate the effectiveness of using UNet predictions as an additional channel
 \end{figure}
 
 \appendix
-\section{Optimizing Neural Network Hyperparameters}\label{app:nn_archi}
+\section{Network Architecture and Training Details}\label{app:nn_archi}
+
+\subsection{Architecture Specification}\label{app:arch_spec}
+
+The U-Net architecture follows the encoder-decoder structure of \citet{ronneberger2015unet} with the following detailed specifications:
+
+\subsubsection{Network Depth and Feature Dimensions}
+The network consists of 6 encoder levels and 6 decoder levels, with feature channel dimensions $[32, 64, 128, 256, 512, 1024]$. The encoder progressively down-samples the input from $128 \times 128$ to $4 \times 4$ pixels (bottleneck), while the decoder up-samples back to $128 \times 128$ pixels using transpose convolutions and skip connections.
+
+\subsubsection{DoubleConv Block Architecture}
+Each encoder and decoder block contains a \texttt{DoubleConv} module consisting of two sequential $3 \times 3$ convolutions with the following configuration:
+\begin{itemize}
+    \item Convolution parameters: kernel size $3 \times 3$, stride $1$, padding $1$ (maintains spatial dimensions)
+    \item Normalization: Batch normalization after each convolution
+    \item Activation: LeakyReLU with negative slope $\alpha = 0.01$
+    \item Bias: Disabled (BatchNorm provides learnable shift)
+\end{itemize}
+
+\subsubsection{Downsampling and Upsampling}
+\begin{itemize}
+    \item \textbf{Encoder downsampling}: Average pooling with $2 \times 2$ kernel and stride $2$ between encoder levels
+    \item \textbf{Decoder upsampling}: Transpose convolution with $2 \times 2$ kernel and stride $2$ between decoder levels
+    \item \textbf{Skip connections}: Encoder feature maps are concatenated channel-wise with upsampled decoder features before each decoder \texttt{DoubleConv} block
+    \item \textbf{Spatial alignment}: Bilinear interpolation handles size mismatches when concatenating skip connections (for odd spatial dimensions)
+\end{itemize}
+
+\subsubsection{Bottleneck}
+The bottleneck layer expands the deepest feature representation from 1024 to 2048 channels using a \texttt{DoubleConv} block at $4 \times 4$ spatial resolution.
+
+\subsubsection{Output Layer}
+The final layer is a $1 \times 1$ convolution mapping from 32 channels to the output channel count (1 channel for all models). For unnormalized training, the output layer bias is initialized to the training set mean of the target variable to provide a sensible starting point.
+
+\subsubsection{Parameter Count and Memory}
+Total trainable parameters vary with input channel count:
+\begin{itemize}
+    \item Single-frequency (3 channels): $\sim 15$ million parameters
+    \item Multi-frequency (8 channels): $\sim 16$ million parameters
+    \item Multi-frequency (16 channels): $\sim 18$ million parameters
+\end{itemize}
+Training requires $\sim 8$--12 GB GPU memory (batch size 32--64), while inference requires $\sim 2$ GB GPU memory.
+
+\subsection{Training Configuration}\label{app:training_config}
+
+\subsubsection{Loss Function and Optimization}
+Networks are trained to minimize the Mean Squared Error (MSE) loss:
+\begin{equation}
+    L = \frac{1}{N} \sum_{i=1}^{N} \| \hat{Y}_i - Y_i \|^2,
+\end{equation}
+where $\hat{Y}_i$ is the network prediction and $Y_i$ is the target (large-scale foregrounds for single-frequency models, ILC residuals for multi-frequency models).
+
+Optimization uses the Adam optimizer \citep{kingma2014adam} with the following hyperparameters:
+\begin{itemize}
+    \item \textbf{Learning rate}: $10^{-3}$ for single-frequency models, $10^{-4}$ for multi-frequency models (initial)
+    \item \textbf{Weight decay}: $5 \times 10^{-4}$ (single-frequency), $1 \times 10^{-5}$ (multi-frequency)
+    \item \textbf{Adam parameters}: $\beta_1 = 0.9$, $\beta_2 = 0.999$, $\epsilon = 10^{-8}$
+\end{itemize}
+
+\subsubsection{Learning Rate Schedule}
+Training employs a two-stage learning rate schedule:
+\begin{itemize}
+    \item \textbf{Warmup phase}: Linear warmup over 5 epochs (single-frequency) or 10 epochs (multi-frequency), starting from $10^{-5}$ or $10^{-6}$ respectively
+    \item \textbf{Adaptive reduction}: \texttt{ReduceLROnPlateau} scheduler reduces learning rate by factor 0.5 when validation loss plateaus (patience = 10 epochs), with minimum learning rate $10^{-6}$
+    \item \textbf{Dataset size scaling}: Multi-frequency models scale initial learning rate by $\sqrt{N_{\text{data}} / 100}$ to account for dataset size variations
+\end{itemize}
+
+\subsubsection{Training Procedure}
+\begin{itemize}
+    \item \textbf{Batch size}: 32 (single-frequency), 64 (multi-frequency)
+    \item \textbf{Maximum epochs}: 200
+    \item \textbf{Early stopping}: Training stops if validation loss does not improve for 20 epochs (single-frequency) or based on validation performance (multi-frequency). Best model (lowest validation loss) is saved.
+    \item \textbf{Gradient clipping}: Maximum gradient norm clipped to 1.0 (single-frequency) or 5.0 (multi-frequency) to stabilize training
+\end{itemize}
+
+\subsubsection{Data Augmentation}
+Training data augmentation includes spatial transformations applied randomly with 50\% probability:
+\begin{itemize}
+    \item Random rotations: $90^\circ$, $180^\circ$, or $270^\circ$
+    \item Random flips: Horizontal and/or vertical axis
+\end{itemize}
+Augmentation is applied only to training data; validation and test sets remain unaugmented.
+
+\subsubsection{Data Normalization}
+Two normalization strategies are employed:
+\begin{itemize}
+    \item \textbf{Normalized training}: Per-channel standardization using training set mean and standard deviation for inputs and targets separately
+    \item \textbf{Unnormalized training}: No normalization, with output layer bias initialized to training set mean (used for some multi-frequency models)
+\end{itemize}
+
+\subsubsection{Initialization}
+\begin{itemize}
+    \item \textbf{Convolutional layers}: Kaiming normal initialization \citep{he2015delving}
+    \item \textbf{Batch normalization}: Weight initialized to 1, bias to 0
+    \item \textbf{Final layer}: Xavier normal for normalized training; weights = 0, bias = training set mean for unnormalized training
+\end{itemize}
+
+\subsubsection{Hardware and Computational Requirements}
+Training was performed on NVIDIA A100 or V100 GPUs using PyTorch with float32 precision. Training times vary by model:
+\begin{itemize}
+    \item Single-frequency models: $\sim 2$--4 hours for 200 epochs
+    \item Multi-frequency models: $\sim 4$--8 hours for 200 epochs
+\end{itemize}
 
 \section*{Acknowledgments}
 

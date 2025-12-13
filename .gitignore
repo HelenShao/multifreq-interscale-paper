@@ -24,3 +24,6 @@
 # Temporary files
 *.tmp
 *.bak
+
+# Documentation/Notes
+PAPER_OUTLINE.md
